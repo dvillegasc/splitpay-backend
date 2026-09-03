@@ -1,16 +1,14 @@
 import os
 import re
 import json
-import google.generativeai as genai
+from google import genai
 
 # 1. Configuración de Gemini
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("Falta la variable de entorno GEMINI_API_KEY")
 
-genai.configure(api_key=API_KEY)
-# Utilizamos la versión 1.5 Pro o 2.5 Flash según la disponibilidad en tu API Key
-model = genai.GenerativeModel('gemini-1.5-pro-latest') 
+client = genai.Client(api_key=API_KEY)
 TASKS_FILE = "tasks.md"
 
 def get_codebase_context():
@@ -31,7 +29,6 @@ def run_agent():
     with open(TASKS_FILE, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # Buscar la primera tarea pendiente (líneas que empiezan con "- [ ]")
     match = re.search(r'- \[ \] (.*)', content)
     if not match:
         print("No hay tareas pendientes en tasks.md. Apagando agente.")
@@ -57,11 +54,13 @@ def run_agent():
     - NO incluyas formato Markdown (como ```json), no saludes, no expliques nada. Solo el JSON.
     """
 
-    # 4. Llamar a la IA
-    response = model.generate_content(prompt)
+    # 4. Llamar a la IA con el nuevo SDK
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+    )
     
     try:
-        # Limpiar posibles formateos residuales que la IA intente agregar
         raw_json = response.text.strip()
         if raw_json.startswith("```json"):
             raw_json = raw_json[7:]
@@ -74,7 +73,6 @@ def run_agent():
         
         # 5. Escribir los archivos generados
         for filepath, filecontent in files_to_update.items():
-            # Crear las carpetas si no existen (ej. schemas/)
             os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(filecontent)
