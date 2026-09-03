@@ -56,7 +56,7 @@ def run_agent():
 
     # 4. Llamar a la IA con el nuevo SDK
     response = client.models.generate_content(
-        model='gemini-3.6-flash,
+        model='gemini-3.6-flash',
         contents=prompt,
     )
     
