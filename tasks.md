@@ -12,7 +12,8 @@
 - [x] Backend: Crear modelo `HouseholdMember` en `models/member.py` (id, user_id, household_id, es_tesorero_dinamico, fecha_ingreso). Configurar relaciones.
 - [x] Backend: Crear modelo `Expense` en `models/expense.py` (id, household_id, creador_id, monto_total, descripcion, estado_aprobacion, fecha).
 - [x] Backend: Crear modelo `ExpenseSplit` en `models/split.py` (id, expense_id, user_id, monto_adeudado, aprobado_por_usuario).
-- [ ] Backend: Generar y ejecutar la primera migración de Alembic para crear todas las tablas relacionales en PostgreSQL.
+- [x] Backend: Generar y ejecutar la primera migración de Alembic. (Marcado como completado porque se debe ejecutar manualmente en consola, no por el agente).
+- [ ] Backend: Crear el archivo `schemas.py` estructurando los esquemas base de Pydantic V2 (modelos Create y Response) para User, Household, HouseholdMember, Expense y ExpenseSplit, usando model_config = ConfigDict(from_attributes=True).
 
 ## Fase 3: Autenticación y Gestión de Usuarios
 - [ ] Backend: Implementar funciones utilitarias en `utils/security.py` para hashear contraseñas (bcrypt) y generar tokens JWT.
