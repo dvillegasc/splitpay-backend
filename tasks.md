@@ -2,7 +2,7 @@
 
 ## Fase 1: Configuración de Infraestructura y Entorno
 - [x] Backend: Inicializar proyecto de Python con `FastAPI`. Configurar `requirements.txt` incluyendo `fastapi`, `uvicorn`, `sqlalchemy`, `psycopg2-binary`, `alembic`, `python-dotenv`.
-- [ ] Backend: Crear archivo `main.py` con un endpoint de prueba `GET /` que retorne `{"status": "SplitPay API running"}`.
+- [x] Backend: Crear archivo `main.py` con un endpoint de prueba `GET /` que retorne `{"status": "SplitPay API running"}`.
 - [x] Backend: Configurar la conexión a la base de datos PostgreSQL en `database.py` utilizando SQLAlchemy y variables de entorno (`DATABASE_URL`).
 - [ ] Backend: Inicializar `alembic` para el control de migraciones de la base de datos.
 
