@@ -13,7 +13,7 @@ import jwt
 from passlib.context import CryptContext
 
 # Configuración de seguridad desde variables de entorno
-SECRET_KEY = os.environ.get("SECRET_KEY", "splitpay_dev_secret_key_change_in_production_123456789")
+SECRET_KEY = os.environ["SECRET_KEY"]
 ALGORITHM = os.environ.get("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 

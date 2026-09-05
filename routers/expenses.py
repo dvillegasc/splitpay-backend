@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from database import get_db
 from dependencies import get_current_user
@@ -22,11 +22,11 @@ from models.user import User
 from schemas import ExpenseCreate, ExpenseResponse
 from services.math_engine import calculate_proportional_split
 
-router = APIRouter(prefix="/api/expenses", tags=["Gastos"])
+router = APIRouter(tags=["Gastos"])
 
 
 @router.post(
-    "",
+    "/api/expenses",
     response_model=ExpenseResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar un nuevo gasto y calcular sus cuotas (splits) con estado pendiente",
@@ -41,6 +41,14 @@ def create_expense(
     a cada miembro del hogar mediante el motor matemático proporcional y guarda
     los registros en 'Expense' y 'ExpenseSplit' con estado de aprobación 'pendiente'.
     """
+    if expense_in.splits is not None:
+        total_splits_amount = sum(split.monto_asignado for split in expense_in.splits)
+        if total_splits_amount != expense_in.monto_total:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La suma del monto asignado de las cuotas (splits) debe ser exactamente igual al monto total del gasto.",
+            )
+
     household = db.query(Household).filter(Household.id == expense_in.household_id).first()
     if not household:
         raise HTTPException(
@@ -88,6 +96,16 @@ def create_expense(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El hogar no cuenta con miembros registrados.",
         )
+
+    household_member_ids = {m.user_id for m in memberships}
+
+    if expense_in.splits:
+        for split in expense_in.splits:
+            if split.user_id not in household_member_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"El usuario {split.user_id} especificado en los splits no es miembro del hogar.",
+                )
 
     new_expense = Expense(
         household_id=expense_in.household_id,
@@ -144,7 +162,7 @@ def create_expense(
 
 
 @router.put(
-    "/{expense_id}/approve",
+    "/api/expenses/{expense_id}/approve",
     response_model=ExpenseResponse,
     status_code=status.HTTP_200_OK,
     summary="Aprobar la cuota individual (split) de un gasto para el usuario autenticado",
@@ -186,7 +204,6 @@ def approve_expense_split(
 
     db.flush()
 
-    # Verificar si todos los splits del gasto están aprobados
     all_splits = db.query(ExpenseSplit).filter(ExpenseSplit.expense_id == expense_id).all()
     if all(s.aprobado_por_usuario for s in all_splits):
         expense.estado_aprobacion = EstadoAprobacionEnum.APROBADO
@@ -195,4 +212,51 @@ def approve_expense_split(
     db.refresh(expense)
 
     return expense
-"
+
+
+@router.get(
+    "/api/households/{household_id}/expenses",
+    response_model=list[ExpenseResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Obtener el historial de gastos de un hogar ordenados por fecha descendente",
+)
+def get_household_expenses(
+    household_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[Expense]:
+    """
+    Retorna el historial de gastos registrados en un hogar, ordenados por fecha de gasto descendente.
+
+    Requiere que el usuario autenticado sea miembro del hogar especificado.
+    """
+    household = db.query(Household).filter(Household.id == household_id).first()
+    if not household:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El hogar especificado no existe.",
+        )
+
+    requester_membership = (
+        db.query(HouseholdMember)
+        .filter(
+            HouseholdMember.household_id == household_id,
+            HouseholdMember.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not requester_membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver los gastos de este hogar.",
+        )
+
+    expenses = (
+        db.query(Expense)
+        .options(selectinload(Expense.splits))
+        .filter(Expense.household_id == household_id)
+        .order_by(Expense.fecha_gasto.desc(), Expense.created_at.desc())
+        .all()
+    )
+
+    return expenses

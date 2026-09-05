@@ -8,7 +8,7 @@ la asignación/votación del tesorero dinámico y la consulta de saldos y deudas
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
 from dependencies import get_current_user
@@ -61,6 +61,28 @@ def create_household(
     db.refresh(new_household)
 
     return new_household
+
+
+@router.get(
+    "/me",
+    response_model=list[HouseholdResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Obtener la lista de hogares a los que pertenece el usuario autenticado",
+)
+def get_my_households(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[Household]:
+    """
+    Retorna la lista de todos los hogares a los que pertenece el usuario actualmente autenticado.
+    """
+    households = (
+        db.query(Household)
+        .join(HouseholdMember, HouseholdMember.household_id == Household.id)
+        .filter(HouseholdMember.user_id == current_user.id)
+        .all()
+    )
+    return households
 
 
 @router.post(
@@ -149,6 +171,53 @@ def add_household_member(
     db.refresh(new_member)
 
     return new_member
+
+
+@router.get(
+    "/{household_id}/members",
+    response_model=list[HouseholdMemberResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Obtener la lista de miembros de un hogar",
+)
+def get_household_members(
+    household_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[HouseholdMember]:
+    """
+    Retorna la lista de miembros de un hogar con sus datos de usuario anidados.
+
+    Requiere que el usuario autenticado sea miembro del hogar especificado.
+    """
+    household = db.query(Household).filter(Household.id == household_id).first()
+    if not household:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El hogar especificado no existe.",
+        )
+
+    requester_membership = (
+        db.query(HouseholdMember)
+        .filter(
+            HouseholdMember.household_id == household_id,
+            HouseholdMember.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not requester_membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver los miembros de este hogar.",
+        )
+
+    members = (
+        db.query(HouseholdMember)
+        .options(joinedload(HouseholdMember.usuario))
+        .filter(HouseholdMember.household_id == household_id)
+        .all()
+    )
+
+    return members
 
 
 @router.put(
@@ -270,4 +339,3 @@ def get_household_balances(
         )
 
     return debt_summary
-"

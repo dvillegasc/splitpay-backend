@@ -129,6 +129,7 @@ class HouseholdMemberResponse(HouseholdMemberBase):
 
     id: UUID
     fecha_ingreso: datetime
+    usuario: Optional[UserResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 
