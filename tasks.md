@@ -36,3 +36,16 @@
 ## Fase 6: Importación de Datos (Data Portability)
 - [x] Backend: Crear endpoint `POST /api/import/splitwise` que reciba un archivo CSV.
 - [x] Backend: Implementar lógica en el endpoint de importación para parsear las columnas de Splitwise (Date, Description, Cost, Currency) y mapearlas a la estructura de la base de datos de SplitPay.
+
+## Fase 7: Correcciones Críticas, CORS y Preparación para Producción
+- [ ] Backend: Configurar `CORSMiddleware` en `main.py`, leyendo los orígenes permitidos desde la variable de entorno `CORS_ORIGINS` (separados por coma), con `allow_credentials=True` y métodos/headers `*`, ya que el frontend en Next.js necesita consumir la API desde un origen distinto.
+- [ ] Backend: En `routers/expenses.py`, función `create_expense`, validar que cuando `expense_in.splits` no sea `None`, la suma de `monto_asignado` de todos los splits sea exactamente igual a `expense_in.monto_total`, retornando 400 si no coincide.
+- [ ] Backend: En `routers/expenses.py`, función `create_expense`, validar que cada `split.user_id` en `expense_in.splits` corresponda a un `HouseholdMember` real del hogar `expense_in.household_id`, retornando 400 si no.
+- [ ] Backend: En `utils/security.py`, eliminar el valor por defecto hardcodeado de `SECRET_KEY` y usar `os.environ["SECRET_KEY"]` para que la aplicación falle al iniciar si la variable no está configurada, igual que ya ocurre con `DATABASE_URL`.
+- [ ] Backend: Crear endpoint `GET /api/households/me` en `routers/households.py` que retorne la lista de `HouseholdResponse` de los hogares a los que pertenece el usuario autenticado.
+- [ ] Backend: Crear endpoint `GET /api/households/{household_id}/members` en `routers/households.py` que retorne la lista de `HouseholdMemberResponse` del hogar (validando que el usuario autenticado sea miembro), incluyendo los datos anidados del `User` (nombre_completo, telefono).
+- [ ] Backend: Crear endpoint `GET /api/households/{household_id}/expenses` en `routers/expenses.py` que retorne el historial de `ExpenseResponse` del hogar ordenado por `fecha_gasto` descendente, validando que el usuario autenticado sea miembro.
+- [ ] Backend: En `routers/expenses.py`, función `create_expense`, rechazar (400) la creación de un gasto cuya `moneda` sea distinta a `household.moneda_base`, hasta que exista un conversor de divisas real, ya que actualmente `debt_simplifier.py` suma montos de distintas monedas sin convertir.
+- [ ] Backend: Crear `requirements.txt` en la raíz del proyecto listando todas las dependencias realmente importadas en el código (`fastapi`, `uvicorn[standard]`, `sqlalchemy>=2.0`, `psycopg2-binary`, `alembic`, `pyjwt`, `passlib[bcrypt]`, `python-dotenv`, `python-multipart`, `pydantic[email]`).
+- [ ] Backend: Crear `Dockerfile` basado en `python:3.12-slim` que instale `requirements.txt`, ejecute `alembic upgrade head` al iniciar y sirva la app con `uvicorn main:app --host 0.0.0.0 --port $PORT`, compatible con Render.
+- [ ] Backend: Crear archivo `.env.example` documentando `DATABASE_URL`, `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES` y `CORS_ORIGINS`.
