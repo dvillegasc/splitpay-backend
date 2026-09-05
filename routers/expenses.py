@@ -56,6 +56,12 @@ def create_expense(
             detail="El hogar especificado no existe.",
         )
 
+    if expense_in.moneda != household.moneda_base:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La moneda del gasto ({expense_in.moneda}) debe coincidir con la moneda base del hogar ({household.moneda_base}).",
+        )
+
     requester_membership = (
         db.query(HouseholdMember)
         .filter(
