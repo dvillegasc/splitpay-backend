@@ -16,6 +16,8 @@ from models.expense import EstadoAprobacionEnum, Expense
 from models.household import Household
 from models.member import HouseholdMember
 from models.split import ExpenseSplit
+from models.user import User
+from services.payment_router import generate_nequi_deep_link
 
 
 def calculate_member_balances(db: Session, household_id: UUID) -> Dict[UUID, Decimal]:
@@ -91,6 +93,9 @@ def simplify_household_debts(
     Si no existe un tesorero dinámico asignado, aplica un algoritmo voraz (greedy)
     para resolver las deudas directamente entre deudores y acreedores con el menor número
     de transferencias posibles.
+
+    Para cada transferencia calculada, enruta el pago intentando generar un deep link
+    de Nequi si el acreedor tiene teléfono registrado.
 
     :param db: Sesión de base de datos SQLAlchemy.
     :param household_id: Identificador único del hogar.
@@ -174,10 +179,21 @@ def simplify_household_debts(
             if creditor["amount"] <= cent:
                 j += 1
 
+    # Enriquecer las transferencias con nequi_deep_link consultando los teléfonos de los acreedores
+    acreedores_ids = list({t["acreedor_id"] for t in transfers})
+    if acreedores_ids:
+        acreedores = db.query(User).filter(User.id.in_(acreedores_ids)).all()
+        phones_map = {u.id: u.telefono for u in acreedores}
+    else:
+        phones_map = {}
+
+    for transfer in transfers:
+        creditor_phone = phones_map.get(transfer["acreedor_id"])
+        transfer["nequi_deep_link"] = generate_nequi_deep_link(creditor_phone, transfer["monto"])
+
     return {
         "household_id": household_id,
         "tesorero_id": tesorero_id,
         "saldos_netos": balances,
         "transferencias": transfers,
     }
-"

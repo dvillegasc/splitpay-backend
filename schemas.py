@@ -203,6 +203,7 @@ class DebtTransferResponse(BaseModel):
     deudor_id: UUID
     acreedor_id: UUID
     monto: Decimal = Field(..., gt=0)
+    nequi_deep_link: Optional[str] = None
 
 
 class DebtSimplificationResponse(BaseModel):
