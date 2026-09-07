@@ -186,6 +186,7 @@ class ExpenseResponse(ExpenseBase):
     """Esquema de lectura/respuesta para un gasto."""
 
     id: UUID
+    monto_total_moneda_base: Decimal
     estado_aprobacion: EstadoAprobacionEnum
     created_at: datetime
     splits: list[ExpenseSplitResponse] = []

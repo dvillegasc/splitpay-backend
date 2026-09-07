@@ -2,8 +2,8 @@
 Endpoints para la gestión de gastos y división de cuotas en SplitPay.
 
 Permite registrar gastos, calcular las cuotas mediante el motor matemático
-proporcional, aprobar las cuotas individuales de los usuarios y consultar el
-historial de gastos de los hogares.
+proporcional, aprobar las cuotas individuales de los usuarios, rechazar gastos y
+consultar el historial de gastos de los hogares.
 """
 
 from datetime import datetime, timezone
@@ -20,6 +20,7 @@ from models.member import HouseholdMember
 from models.split import ExpenseSplit
 from models.user import User
 from schemas import ExpenseCreate, ExpenseResponse
+from services.currency_converter import convert_amount
 from services.math_engine import calculate_proportional_split
 
 router = APIRouter(tags=["Gastos"])
@@ -40,6 +41,9 @@ def create_expense(
     Registra un gasto en un hogar, calcula las cuotas (splits) correspondientes
     a cada miembro del hogar mediante el motor matemático proporcional y guarda
     los registros en 'Expense' y 'ExpenseSplit' con estado de aprobación 'pendiente'.
+    
+    Si la moneda del gasto difiere de la moneda base del hogar, realiza la conversión
+    de divisa en tiempo real para poblar 'monto_total_moneda_base'.
     """
     if expense_in.splits is not None:
         total_splits_amount = sum(split.monto_asignado for split in expense_in.splits)
@@ -56,10 +60,16 @@ def create_expense(
             detail="El hogar especificado no existe.",
         )
 
-    if expense_in.moneda != household.moneda_base:
+    try:
+        monto_total_moneda_base = convert_amount(
+            amount=expense_in.monto_total,
+            from_currency=expense_in.moneda,
+            to_currency=household.moneda_base,
+        )
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"La moneda del gasto ({expense_in.moneda}) debe coincidir con la moneda base del hogar ({household.moneda_base}).",
+            detail=f"Error al realizar la conversión de moneda: {e}",
         )
 
     requester_membership = (
@@ -118,6 +128,7 @@ def create_expense(
         pagado_por_id=expense_in.pagado_por_id,
         descripcion=expense_in.descripcion,
         monto_total=expense_in.monto_total,
+        monto_total_moneda_base=monto_total_moneda_base,
         moneda=expense_in.moneda,
         fecha_gasto=expense_in.fecha_gasto,
         estado_aprobacion=EstadoAprobacionEnum.PENDIENTE,
@@ -220,6 +231,55 @@ def approve_expense_split(
     return expense
 
 
+@router.put(
+    "/api/expenses/{expense_id}/reject",
+    response_model=ExpenseResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Rechazar un gasto marcando su estado de aprobación como RECHAZADO",
+)
+def reject_expense(
+    expense_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Expense:
+    """
+    Marca el estado de aprobación del gasto como RECHAZADO.
+
+    Requiere que el usuario autenticado tenga una cuota asignada en el gasto
+    o sea el pagador del mismo.
+    """
+    expense = db.query(Expense).filter(Expense.id == expense_id).first()
+    if not expense:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El gasto especificado no existe.",
+        )
+
+    is_pagador = expense.pagado_por_id == current_user.id
+    has_split = (
+        db.query(ExpenseSplit)
+        .filter(
+            ExpenseSplit.expense_id == expense_id,
+            ExpenseSplit.user_id == current_user.id,
+        )
+        .first()
+        is not None
+    )
+
+    if not is_pagador and not has_split:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para rechazar este gasto ya que no eres el pagador ni tienes una cuota asignada.",
+        )
+
+    expense.estado_aprobacion = EstadoAprobacionEnum.RECHAZADO
+
+    db.commit()
+    db.refresh(expense)
+
+    return expense
+
+
 @router.get(
     "/api/households/{household_id}/expenses",
     response_model=list[ExpenseResponse],
@@ -266,3 +326,4 @@ def get_household_expenses(
     )
 
     return expenses
+"

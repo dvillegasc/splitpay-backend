@@ -220,6 +220,68 @@ def get_household_members(
     return members
 
 
+@router.delete(
+    "/{household_id}/members/{user_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Eliminar la membresía de un usuario en el hogar",
+)
+def remove_household_member(
+    household_id: UUID,
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """
+    Elimina la membresía de un usuario en el hogar especificado.
+
+    Validación: Requiere que el solicitante sea miembro del hogar.
+    Si el miembro removido era el tesorero dinámico, limpia dicho flag antes de la eliminación.
+    """
+    household = db.query(Household).filter(Household.id == household_id).first()
+    if not household:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El hogar especificado no existe.",
+        )
+
+    requester_membership = (
+        db.query(HouseholdMember)
+        .filter(
+            HouseholdMember.household_id == household_id,
+            HouseholdMember.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not requester_membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para realizar acciones en este hogar.",
+        )
+
+    target_membership = (
+        db.query(HouseholdMember)
+        .filter(
+            HouseholdMember.household_id == household_id,
+            HouseholdMember.user_id == user_id,
+        )
+        .first()
+    )
+    if not target_membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El usuario especificado no es miembro de este hogar.",
+        )
+
+    if target_membership.es_tesorero_dinamico:
+        target_membership.es_tesorero_dinamico = False
+        db.flush()
+
+    db.delete(target_membership)
+    db.commit()
+
+    return {"detail": "Miembro eliminado del hogar exitosamente."}
+
+
 @router.put(
     "/{household_id}/treasurer",
     response_model=HouseholdMemberResponse,
@@ -339,3 +401,4 @@ def get_household_balances(
         )
 
     return debt_summary
+"

@@ -48,6 +48,7 @@ class Expense(Base):
 
     descripcion: Mapped[str] = mapped_column(String(255), nullable=False)
     monto_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    monto_total_moneda_base: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     moneda: Mapped[str] = mapped_column(String(3), nullable=False, default="COP")
     fecha_gasto: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
 

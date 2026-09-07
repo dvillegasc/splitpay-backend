@@ -23,6 +23,7 @@ from models.member import HouseholdMember
 from models.split import ExpenseSplit
 from models.user import User
 from schemas import ImportSplitwiseResponse
+from services.currency_converter import convert_amount
 from services.math_engine import calculate_proportional_split
 
 router = APIRouter(prefix="/api/import", tags=["Importación"])
@@ -208,6 +209,15 @@ async def import_splitwise_csv(
         if not moneda or len(moneda) != 3:
             moneda = household.moneda_base
 
+        try:
+            monto_total_moneda_base = convert_amount(
+                amount=monto_total,
+                from_currency=moneda,
+                to_currency=household.moneda_base,
+            )
+        except ValueError:
+            monto_total_moneda_base = monto_total
+
         pagado_por_id = current_user.id
         if payer_col and row.get(payer_col):
             payer_str = row.get(payer_col).strip().lower()
@@ -219,6 +229,7 @@ async def import_splitwise_csv(
             pagado_por_id=pagado_por_id,
             descripcion=desc[:255],
             monto_total=monto_total,
+            monto_total_moneda_base=monto_total_moneda_base,
             moneda=moneda,
             fecha_gasto=fecha_gasto,
             estado_aprobacion=EstadoAprobacionEnum.PENDIENTE,
@@ -257,4 +268,3 @@ async def import_splitwise_csv(
         "mensajes": messages,
         "gastos": created_expenses,
     }
-"
