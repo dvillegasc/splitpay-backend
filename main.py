@@ -9,8 +9,10 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
-from routers.auth import router as auth_router
+from routers.auth import limiter, router as auth_router
 from routers.expenses import router as expenses_router
 from routers.households import router as households_router
 from routers.import_splitwise import router as import_router
@@ -24,6 +26,9 @@ app = FastAPI(
     description="Backend API para la gestión y división de gastos compartidos en el hogar.",
     version="0.1.0",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

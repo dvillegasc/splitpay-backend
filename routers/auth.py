@@ -4,7 +4,9 @@ Endpoints de autenticación para SplitPay.
 Provee la gestión de registro, inicio de sesión y consulta de perfil de usuario.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -12,6 +14,8 @@ from dependencies import get_current_user
 from models.user import User
 from schemas import LoginRequest, Token, UserCreate, UserResponse
 from utils.security import create_access_token, hash_password, verify_password
+
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
@@ -22,7 +26,9 @@ router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
     status_code=status.HTTP_201_CREATED,
     summary="Registrar un nuevo usuario",
 )
+@limiter.limit("5/minute")
 def register_user(
+    request: Request,
     user_in: UserCreate,
     db: Session = Depends(get_db),
 ) -> User:
@@ -62,7 +68,9 @@ def register_user(
     status_code=status.HTTP_200_OK,
     summary="Autenticar usuario y retornar token JWT",
 )
+@limiter.limit("5/minute")
 def login(
+    request: Request,
     credentials: LoginRequest,
     db: Session = Depends(get_db),
 ) -> Token:

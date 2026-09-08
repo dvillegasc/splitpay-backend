@@ -73,7 +73,6 @@ def upgrade() -> None:
         sa.Column('pagado_por_id', sa.Uuid(), nullable=False),
         sa.Column('descripcion', sa.String(length=255), nullable=False),
         sa.Column('monto_total', sa.Numeric(precision=12, scale=2), nullable=False),
-        sa.Column('monto_total_moneda_base', sa.Numeric(precision=12, scale=2), nullable=False),
         sa.Column('moneda', sa.String(length=3), nullable=False),
         sa.Column('fecha_gasto', sa.Date(), server_default=sa.text('CURRENT_DATE'), nullable=False),
         sa.Column('estado_aprobacion', estado_aprobacion_enum, nullable=False),
