@@ -60,18 +60,6 @@ def create_expense(
             detail="El hogar especificado no existe.",
         )
 
-    try:
-        monto_total_moneda_base = convert_amount(
-            amount=expense_in.monto_total,
-            from_currency=expense_in.moneda,
-            to_currency=household.moneda_base,
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error al realizar la conversión de moneda: {e}",
-        )
-
     requester_membership = (
         db.query(HouseholdMember)
         .filter(
@@ -84,6 +72,18 @@ def create_expense(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permiso para registrar gastos en este hogar.",
+        )
+
+    try:
+        monto_total_moneda_base = convert_amount(
+            amount=expense_in.monto_total,
+            from_currency=expense_in.moneda,
+            to_currency=household.moneda_base,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error al realizar la conversión de moneda: {e}",
         )
 
     pagador_membership = (
@@ -326,4 +326,3 @@ def get_household_expenses(
     )
 
     return expenses
-"
