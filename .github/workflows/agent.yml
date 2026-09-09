@@ -1,37 +1,80 @@
-name: Gemini Autonomous Agent
+name: Agentes Autónomos SplitPay (Backend)
 
 on:
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
-  run-agent:
+  run-agents:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [CORE, TESTS, INFRA]
+    concurrency:
+      group: splitpay-backend-agent-${{ matrix.lane }}
+      cancel-in-progress: false
     steps:
       - name: Checkout del repositorio
         uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0
+
       - name: Configurar entorno Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          
+          python-version: '3.12'
+
       - name: Instalar dependencias del agente
         run: pip install google-genai
-        
-      - name: Ejecutar Agente Gemini
+
+      - name: Configurar identidad de Git
+        run: |
+          git config --global user.name 'splitpay-agent[bot]'
+          git config --global user.email 'splitpay-agent-bot@users.noreply.github.com'
+
+      - name: Crear/reiniciar la rama del carril desde main
+        run: |
+          git fetch origin main
+          git checkout -B agent/${{ matrix.lane }} origin/main
+
+      - name: Ejecutar Agente Gemini (carril ${{ matrix.lane }})
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python agent.py
-        
-      - name: Guardar cambios (Commit & Push)
+        run: python agent.py "${{ matrix.lane }}"
+
+      - name: Verificar si hubo cambios
+        id: check_changes
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add .
-          git commit -m "🤖 Tarea completada por Gemini AI" || echo "No hay cambios para subir"
-          git push
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Confirmar y publicar la rama
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git commit -m "🤖 [${{ matrix.lane }}] Tareas completadas por el agente"
+          git push --force origin agent/${{ matrix.lane }}
+
+      - name: Crear el Pull Request si no existe
+        if: steps.check_changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh pr view agent/${{ matrix.lane }} >/dev/null 2>&1; then
+            echo "El PR del carril ${{ matrix.lane }} ya existe; se actualizó con el push anterior."
+          else
+            gh pr create \
+              --base main \
+              --head agent/${{ matrix.lane }} \
+              --title "🤖 [${{ matrix.lane }}] Tareas del agente autónomo" \
+              --body "Generado automáticamente por el agente del carril **${{ matrix.lane }}**. Lo revisará el agente verificador antes de mergear a main."
+          fi
