@@ -1,0 +1,79 @@
+name: Agente Verificador SplitPay (Backend)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  review:
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: splitpay
+          POSTGRES_PASSWORD: splitpay
+          POSTGRES_DB: splitpay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout de la rama del PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Configurar identidad de Git (para posibles commits de corrección)
+        run: |
+          git config --global user.name 'splitpay-reviewer[bot]'
+          git config --global user.email 'splitpay-reviewer-bot@users.noreply.github.com'
+
+      - name: Configurar entorno Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias del proyecto y del agente verificador
+        run: |
+          pip install -r requirements.txt
+          pip install pytest openai
+
+      - name: Ejecutar pruebas automatizadas
+        id: tests
+        env:
+          DATABASE_URL: postgresql+psycopg2://splitpay:splitpay@localhost:5432/splitpay_test
+          SECRET_KEY: test-secret-key-solo-para-ci
+        run: pytest --tb=short -q > pytest_output.txt 2>&1
+        continue-on-error: true
+
+      - name: Ejecutar migraciones de Alembic
+        id: migrations
+        env:
+          DATABASE_URL: postgresql+psycopg2://splitpay:splitpay@localhost:5432/splitpay_test
+        run: alembic upgrade head > alembic_output.txt 2>&1
+        continue-on-error: true
+
+      - name: Obtener el diff del PR contra main
+        run: |
+          git fetch origin main
+          git diff origin/main...HEAD > pr_diff.txt
+
+      - name: Ejecutar el Agente Verificador
+        env:
+          REVIEWER_API_KEY: ${{ secrets.REVIEWER_API_KEY }}
+          TESTS_PASSED: ${{ steps.tests.outcome == 'success' }}
+          MIGRATIONS_PASSED: ${{ steps.migrations.outcome == 'success' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python reviewer_agent.py
