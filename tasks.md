@@ -1,5 +1,9 @@
 # Backlog de Desarrollo Autónomo - SplitPay (PMV)
 
+> Convención de carriles: cada tarea pendiente lleva una etiqueta [CORE], [TESTS]
+> o [INFRA] justo después de `- [ ]`. Cada agente de carril solo procesa las
+> tareas de su propia etiqueta (ver agent.py y agents.yml).
+
 ## Fase 1: Configuración de Infraestructura y Entorno
 - [x] Backend: Inicializar proyecto de Python con `FastAPI`. Configurar `requirements.txt` incluyendo `fastapi`, `uvicorn`, `sqlalchemy`, `psycopg2-binary`, `alembic`, `python-dotenv`.
 - [x] Backend: Crear archivo `main.py` con un endpoint de prueba `GET /` que retorne `{"status": "SplitPay API running"}`.
@@ -63,13 +67,19 @@
 - [x] Backend: Agregar rate limiting a `POST /api/auth/login` y `POST /api/auth/register` en `routers/auth.py` usando la librería `slowapi` (máximo 5 intentos por minuto por IP) para mitigar fuerza bruta antes de producción, agregando `slowapi` a `requirements.txt`.
 
 ## Fase 9: Blindaje Financiero, Migraciones y Cero Custodia
-- [x] Backend: URGENTE — antes de cualquier otra tarea de esta fase, verificar manualmente en un dispositivo Android/iOS con la app de Nequi instalada si el enlace `nequi://pay?phone={telefono}&amount={monto}` realmente abre la app y precarga los datos; documentar el resultado en `README.md` bajo una sección "Estado de Deep Linking".
-- [x] Backend: Revertir `alembic/versions/0001_esquema_inicial.py` a su forma original (sin la columna `monto_total_moneda_base`), y reescribir `alembic/versions/0001_add_monto_total_moneda_base.py` con una migración real: `op.add_column('expenses', sa.Column('monto_total_moneda_base', sa.Numeric(12,2), nullable=True))`, seguido de un backfill (`UPDATE expenses SET monto_total_moneda_base = monto_total WHERE monto_total_moneda_base IS NULL`) y luego `op.alter_column('expenses', 'monto_total_moneda_base', nullable=False)`.
-- [x] Backend: Renombrar los archivos de migración con IDs únicos y ordenables (ej. `0001_esquema_inicial.py` y `0002_add_monto_total_moneda_base.py`) para evitar la ambigüedad de tener dos archivos con el mismo prefijo `0001_`.
-- [x] Backend: En `routers/expenses.py`, mover la llamada a `convert_amount()` después de la validación de `requester_membership`, para no consumir cuota de la API externa de tasas de cambio en peticiones que de todos modos serán rechazadas por permisos.
-- [ ] Backend: Agregar una validación de máquina de estados en `approve_expense_split` y `reject_expense` que retorne 400 si `expense.estado_aprobacion` ya es `APROBADO` o `RECHAZADO`, dado que en el modelo Cero Custodia una vez aprobado se asume que el dinero ya se movió externamente vía Nequi y no debería poder revertirse el estado desde la API.
-- [ ] Backend: En `services/payment_router.py`, aplicar `urllib.parse.quote()` al `telefono` y al `monto` antes de interpolarlos en el deep link, para evitar URLs malformadas.
-- [ ] Backend: Agregar una nota explícita en el docstring de `services/debt_simplifier.py` y en la descripción de `DebtSimplificationResponse`/`DebtTransferResponse` (visible en `/docs` de FastAPI): "SplitPay no ejecuta ni custodia estas transferencias; son sugerencias de pago entre las billeteras propias de los usuarios."
-- [ ] Backend: En `services/currency_converter.py`, documentar en el docstring del módulo que la caché en memoria es por proceso, y que un despliegue con múltiples workers de uvicorn/gunicorn multiplicará las llamadas a la API externa; dejar un TODO para migrar a Redis si se escala horizontalmente.
-- [ ] Backend: Agregar `concurrency: { group: "splitpay-backend-agent", cancel-in-progress: false }` a `.github/workflows/agent.yml`, y agregar el paso `git pull --rebase origin main` antes del `git push` (el workflow del frontend ya lo tiene; el del backend no).
-- [ ] Backend: Agregar un job de CI (`.github/workflows/ci.yml`) que corra en cada push a `main`: `pytest`, `alembic upgrade head` contra un contenedor de PostgreSQL de prueba, y falle el workflow si algo no pasa — como red de seguridad ante migraciones o código que el agente marque `[x]` sin que realmente funcione.
+- [x] Backend: Revertir `alembic/versions/0001_esquema_inicial.py` a su forma original (sin la columna `monto_total_moneda_base`), y reescribir `alembic/versions/0001_add_monto_total_moneda_base.py` con una migración real: `op.add_column('expenses', sa.Column('monto_total_moneda_base', sa.Numeric(12,2), nullable=True))`, seguido de un backfill y luego `op.alter_column('expenses', 'monto_total_moneda_base', nullable=False)`.
+- [x] Backend: Renombrar los archivos de migración con IDs únicos y ordenables (ej. `0001_esquema_inicial.py` y `0002_add_monto_total_moneda_base.py`).
+- [x] Backend: En `routers/expenses.py`, mover la llamada a `convert_amount()` después de la validación de `requester_membership`.
+- [ ] [INFRA] Backend: Borrar `alembic/versions/0001_add_monto_total_moneda_base.py` (quedó en 0 bytes tras el renombrado del ítem anterior; sin `revision` definido, rompe cualquier comando de Alembic que escanee `alembic/versions/`).
+- [ ] [CORE] Backend: Agregar una validación de máquina de estados en `approve_expense_split` y `reject_expense` que retorne 400 si `expense.estado_aprobacion` ya es `APROBADO` o `RECHAZADO`, dado que en el modelo Cero Custodia una vez aprobado se asume que el dinero ya se movió externamente vía Nequi y no debería poder revertirse el estado desde la API.
+- [ ] [CORE] Backend: En `services/payment_router.py`, aplicar `urllib.parse.quote()` al `telefono` y al `monto` antes de interpolarlos en el deep link, para evitar URLs malformadas.
+- [ ] [CORE] Backend: Agregar una nota explícita en el docstring de `services/debt_simplifier.py` y en la descripción de `DebtSimplificationResponse`/`DebtTransferResponse` (visible en `/docs` de FastAPI): "SplitPay no ejecuta ni custodia estas transferencias; son sugerencias de pago entre las billeteras propias de los usuarios."
+- [ ] [CORE] Backend: En `services/currency_converter.py`, documentar en el docstring del módulo que la caché en memoria es por proceso, y que un despliegue con múltiples workers de uvicorn/gunicorn multiplicará las llamadas a la API externa; dejar un TODO para migrar a Redis si se escala horizontalmente.
+- [ ] [TESTS] Backend: Agregar a `tests/test_debt_simplifier.py` un caso donde `Expense.moneda` difiera de `household.moneda_base`, verificando que `convert_amount()` se invoque y que el saldo final quede expresado en la moneda base del hogar.
+
+> Nota: la verificación manual del deep link de Nequi en un dispositivo real
+> (que estaba aquí como ítem y fue marcada [x] sin evidencia real) se retiró
+> de este backlog porque ningún agente de código puede ejecutarla. Sigue
+> pendiente y depende de ti: instala Nequi en un teléfono, intenta abrir
+> `nequi://pay?phone=<numero_real>&amount=1000` desde el navegador del celular,
+> y documenta el resultado en el README a mano.
