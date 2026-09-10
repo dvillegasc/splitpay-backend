@@ -1,28 +1,44 @@
-"""
-Servicio de Enrutamiento de Pagos para SplitPay.
-
-Genera deep links para billeteras digitales (como Nequi) a partir de los datos
-del usuario acreedor y el monto de la transferencia.
-"""
-
+import urllib.parse
+from pydantic import BaseModel
 from decimal import Decimal
-from typing import Optional, Union
 
+class PaymentLinks(BaseModel):
+    nequi_url: str
+    daviplata_url: str
+    bre_b_qr_data: str
 
-def generate_nequi_deep_link(
-    telefono: Optional[str],
-    monto: Union[Decimal, float, int, str],
-) -> Optional[str]:
+class PaymentRouter:
     """
-    Genera un deep link para iniciar un pago en Nequi con el formato:
-    `nequi://pay?phone={telefono}&amount={monto}`.
-
-    :param telefono: Número de teléfono registrado del acreedor.
-    :param monto: Monto de la transferencia a realizar.
-    :return: Cadena con el deep link de Nequi o None si el acreedor no tiene teléfono registrado.
+    Factoría de URLs para Deep Linking. No gestiona transacciones, 
+    solo formatea intents de pago hacia ecosistemas de terceros.
     """
-    if not telefono or not str(telefono).strip():
-        return None
+    NEQUI_BASE_URL = "nequi://pay"
+    DAVIPLATA_BASE_URL = "daviplata://transfer"
+    
+    @classmethod
+    def generate_links(cls, phone_number: str, amount_str: str, concept: str = "SplitPay") -> PaymentLinks:
+        # Sanitización estricta del input
+        clean_phone = ''.join(filter(str.isdigit, phone_number))
+        
+        try:
+            amount_dec = Decimal(amount_str).quantize(Decimal('0.01'))
+        except Exception:
+            amount_dec = Decimal('0.00')
 
-    telefono_limpio = str(telefono).strip()
-    return f"nequi://pay?phone={telefono_limpio}&amount={monto}"
+        # Codificación de parámetros de URL para evitar inyecciones
+        nequi_params = urllib.parse.urlencode({
+            'phone': clean_phone,
+            'amount': str(amount_dec),
+            'concept': concept
+        })
+        
+        daviplata_params = urllib.parse.urlencode({
+            'to': clean_phone,
+            'amount': str(amount_dec)
+        })
+
+        return PaymentLinks(
+            nequi_url=f"{cls.NEQUI_BASE_URL}?{nequi_params}",
+            daviplata_url=f"{cls.DAVIPLATA_BASE_URL}?{daviplata_params}",
+            bre_b_qr_data=f"breb:transfer:{clean_phone}:{amount_dec}"
+        )
