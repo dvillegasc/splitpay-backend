@@ -1,8 +1,9 @@
 """
 Agente Verificador para SplitPay (backend). Revisa el PR de un agente de
 carril cruzando señales objetivas (pytest, alembic) con una revisión
-semántica hecha por un modelo DISTINTO a Gemini (por defecto DeepSeek), para
-no repetir los mismos puntos ciegos del modelo que escribió el código.
+semántica hecha por un modelo de Gemini DISTINTO al que escribe el código
+(gemini-2.0-flash en vez de gemini-3.6-flash), usando la cuota gratuita
+independiente que Google asigna por modelo.
 """
 
 import json
@@ -10,11 +11,10 @@ import os
 import subprocess
 import sys
 
-from openai import OpenAI
+from google import genai
 
 REVIEWER_API_KEY = os.environ["REVIEWER_API_KEY"]
-REVIEWER_BASE_URL = os.environ.get("REVIEWER_BASE_URL", "https://api.deepseek.com")
-REVIEWER_MODEL = os.environ.get("REVIEWER_MODEL", "deepseek-chat")
+REVIEWER_MODEL = os.environ.get("REVIEWER_MODEL", "gemini-2.0-flash")
 
 TESTS_PASSED = os.environ.get("TESTS_PASSED", "false").lower() == "true"
 MIGRATIONS_PASSED = os.environ.get("MIGRATIONS_PASSED", "false").lower() == "true"
@@ -22,7 +22,7 @@ PR_NUMBER = os.environ["PR_NUMBER"]
 
 MAX_AUTO_FIX_ATTEMPTS = 2
 
-client = OpenAI(api_key=REVIEWER_API_KEY, base_url=REVIEWER_BASE_URL)
+client = genai.Client(api_key=REVIEWER_API_KEY)
 
 REVIEW_CHECKLIST = """
 Actúa como Principal Engineer haciendo code review de un Pull Request para SplitPay,
@@ -109,13 +109,12 @@ def main() -> None:
 
     fix_attempts = count_previous_fix_attempts()
 
-    response = client.chat.completions.create(
+    response = client.models.generate_content(
         model=REVIEWER_MODEL,
-        messages=[{"role": "user", "content": f"{REVIEW_CHECKLIST}\n\n--- DIFF DEL PULL REQUEST ---\n{diff}"}],
-        temperature=0,
+        contents=f"{REVIEW_CHECKLIST}\n\n--- DIFF DEL PULL REQUEST ---\n{diff}",
     )
 
-    raw = response.choices[0].message.content.strip()
+    raw = response.text.strip()
     if raw.startswith("```"):
         raw = raw.strip("`")
         if raw.lower().startswith("json"):
