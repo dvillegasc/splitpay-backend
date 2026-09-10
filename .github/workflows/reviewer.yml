@@ -47,7 +47,7 @@ jobs:
       - name: Instalar dependencias del proyecto y del agente verificador
         run: |
           pip install -r requirements.txt
-          pip install pytest openai
+          pip install pytest google-genai
 
       - name: Ejecutar pruebas automatizadas
         id: tests
