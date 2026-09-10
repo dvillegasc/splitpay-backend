@@ -129,6 +129,11 @@ def run_agent():
                 break
 
             for filepath, filecontent in files_to_update.items():
+                if filecontent is None:
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                        print(f"🗑️ Archivo eliminado: {filepath}")
+                    continue
                 os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(filecontent)
