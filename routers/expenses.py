@@ -202,6 +202,12 @@ def approve_expense_split(
             detail="El gasto especificado no existe.",
         )
 
+    if expense.estado_aprobacion in (EstadoAprobacionEnum.APROBADO, EstadoAprobacionEnum.RECHAZADO):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El gasto ya se encuentra en estado APROBADO o RECHAZADO y no puede ser modificado.",
+        )
+
     split = (
         db.query(ExpenseSplit)
         .filter(
@@ -253,6 +259,12 @@ def reject_expense(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="El gasto especificado no existe.",
+        )
+
+    if expense.estado_aprobacion in (EstadoAprobacionEnum.APROBADO, EstadoAprobacionEnum.RECHAZADO):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El gasto ya se encuentra en estado APROBADO o RECHAZADO y no puede ser modificado.",
         )
 
     is_pagador = expense.pagado_por_id == current_user.id
