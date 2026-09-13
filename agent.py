@@ -145,6 +145,7 @@ def run_agent():
         REGLA CRÍTICA: Tu respuesta debe ser ÚNICAMENTE un objeto JSON válido.
         - Las claves (keys) deben ser la ruta relativa del archivo (ej. 'main.py' o 'models/user.py').
         - Los valores (values) deben ser el código fuente COMPLETO de ese archivo, sin caracteres sueltos antes o después.
+        - Si la tarea requiere ELIMINAR un archivo en vez de modificarlo, usa el valor null (no un string) para esa ruta.
         - NO incluyas formato Markdown, no saludes, no expliques nada. Solo el JSON.
         """
 
