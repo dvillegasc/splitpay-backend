@@ -1,6 +1,9 @@
 name: Agentes Autónomos SplitPay (Backend)
 
 on:
+  # Desfasado respecto al workflow del frontend (que corre en el minuto 20)
+  # para no lanzar 6 llamadas a la misma cuenta gratuita de Gemini en la
+  # misma ventana de un minuto.
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
@@ -14,6 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # max-parallel: 1 — antes los 3 carriles disparaban su primera llamada
+      # a Gemini casi en el mismo segundo, reventando el límite de
+      # solicitudes por minuto del tier gratuito (evidencia: los logs
+      # muestran 5 de 6 llamadas con 429 en una ráfaga de ~30s). Corriendo
+      # secuencial, cada carril usa la cuota que dejó libre el anterior.
+      max-parallel: 1
       matrix:
         lane: [CORE, TESTS, INFRA]
     concurrency:
@@ -49,6 +58,15 @@ jobs:
         run: python agent.py "${{ matrix.lane }}"
 
       - name: Verificar si hubo cambios
+        # if: always() — ANTES este paso solo corría si "Ejecutar Agente
+        # Gemini" salía con éxito. Con el fix de exit codes, ahora una
+        # tarea puede completarse bien (archivo escrito, tasks.md marcado)
+        # y la SIGUIENTE fallar por 429 dentro del mismo run: el paso 7
+        # termina en código 1 y, sin always(), GitHub Actions se saltaba
+        # este paso y todos los siguientes, descartando el trabajo bueno
+        # que sí se había hecho. Evidencia real: el carril CORE completó
+        # una tarea y la perdió por esto exacto.
+        if: always()
         id: check_changes
         run: |
           git add -A
@@ -59,13 +77,13 @@ jobs:
           fi
 
       - name: Confirmar y publicar la rama
-        if: steps.check_changes.outputs.changed == 'true'
+        if: always() && steps.check_changes.outputs.changed == 'true'
         run: |
           git commit -m "🤖 [${{ matrix.lane }}] Tareas completadas por el agente"
           git push --force origin agent/${{ matrix.lane }}
 
       - name: Crear el Pull Request si no existe
-        if: steps.check_changes.outputs.changed == 'true'
+        if: always() && steps.check_changes.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
