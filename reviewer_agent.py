@@ -90,26 +90,34 @@ def count_previous_fix_attempts() -> int:
     return len([line for line in log.splitlines() if line.strip()])
 
 
+REVIEWER_FALLBACK_MODEL = os.environ.get("REVIEWER_FALLBACK_MODEL", "gemini-2.5-flash")
+
+
 def call_gemini_with_retries(prompt: str, max_attempts: int = 3):
     """
-    Mismo mecanismo que agent.py: un 429 en el tier gratuito casi siempre es
-    un límite por minuto, no una cuota diaria agotada. Sin esto, un 429
-    transitorio tumbaba el verificador sin comentar nada, y el PR quedaba
-    sin revisar hasta el próximo commit en esa rama.
+    Mismo mecanismo que agent.py, incluyendo el fallback a un segundo modelo
+    si REVIEWER_MODEL agota sus reintentos (cuota independiente, misma
+    cuenta). Sin esto, un 429 tumbaba el verificador sin comentar nada, y el
+    PR quedaba sin revisar hasta el próximo commit en esa rama.
     """
     last_exc = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            return client.models.generate_content(model=REVIEWER_MODEL, contents=prompt)
-        except errors.ClientError as e:
-            last_exc = e
-            is_quota = "429" in str(e)
-            wait = 65 if is_quota else 5 * attempt
-            motivo = "cuota por minuto agotada (429)" if is_quota else f"error de API: {e}"
-            print(f"⚠️ Intento {attempt}/{max_attempts} falló ({motivo}).")
-            if attempt < max_attempts:
-                print(f"   Reintentando en {wait}s...")
-                time.sleep(wait)
+    for model in (REVIEWER_MODEL, REVIEWER_FALLBACK_MODEL):
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = client.models.generate_content(model=model, contents=prompt)
+                if model != REVIEWER_MODEL:
+                    print(f"ℹ️ Se resolvió con el modelo de respaldo {model} (el principal no respondió).")
+                return response
+            except errors.ClientError as e:
+                last_exc = e
+                is_quota = "429" in str(e)
+                wait = 65 if is_quota else 5 * attempt
+                motivo = "cuota por minuto agotada (429)" if is_quota else f"error de API: {e}"
+                print(f"⚠️ [{model}] Intento {attempt}/{max_attempts} falló ({motivo}).")
+                if attempt < max_attempts:
+                    print(f"   Reintentando en {wait}s...")
+                    time.sleep(wait)
+        print(f"🔁 Se agotaron los reintentos con {model}, probando el siguiente modelo...")
     raise last_exc
 
 
