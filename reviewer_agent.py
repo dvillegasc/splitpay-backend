@@ -10,8 +10,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 from google import genai
+from google.genai import errors
 
 REVIEWER_API_KEY = os.environ["REVIEWER_API_KEY"]
 REVIEWER_MODEL = os.environ.get("REVIEWER_MODEL", "gemini-2.0-flash")
@@ -88,6 +90,29 @@ def count_previous_fix_attempts() -> int:
     return len([line for line in log.splitlines() if line.strip()])
 
 
+def call_gemini_with_retries(prompt: str, max_attempts: int = 3):
+    """
+    Mismo mecanismo que agent.py: un 429 en el tier gratuito casi siempre es
+    un límite por minuto, no una cuota diaria agotada. Sin esto, un 429
+    transitorio tumbaba el verificador sin comentar nada, y el PR quedaba
+    sin revisar hasta el próximo commit en esa rama.
+    """
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return client.models.generate_content(model=REVIEWER_MODEL, contents=prompt)
+        except errors.ClientError as e:
+            last_exc = e
+            is_quota = "429" in str(e)
+            wait = 65 if is_quota else 5 * attempt
+            motivo = "cuota por minuto agotada (429)" if is_quota else f"error de API: {e}"
+            print(f"⚠️ Intento {attempt}/{max_attempts} falló ({motivo}).")
+            if attempt < max_attempts:
+                print(f"   Reintentando en {wait}s...")
+                time.sleep(wait)
+    raise last_exc
+
+
 def main() -> None:
     diff = read_tail("pr_diff.txt", 60_000)
     pytest_output = read_tail("pytest_output.txt", 4_000)
@@ -109,10 +134,17 @@ def main() -> None:
 
     fix_attempts = count_previous_fix_attempts()
 
-    response = client.models.generate_content(
-        model=REVIEWER_MODEL,
-        contents=f"{REVIEW_CHECKLIST}\n\n--- DIFF DEL PULL REQUEST ---\n{diff}",
-    )
+    try:
+        response = call_gemini_with_retries(
+            f"{REVIEW_CHECKLIST}\n\n--- DIFF DEL PULL REQUEST ---\n{diff}"
+        )
+    except errors.ClientError as e:
+        gh("pr", "comment", PR_NUMBER, "--body",
+           f"⚠️ El agente verificador no pudo completar la revisión tras varios intentos "
+           f"(cuota de Gemini agotada o error de API: {e}). Se reintentará automáticamente "
+           f"cuando llegue el próximo commit a esta rama.")
+        print(f"Agotados los reintentos: {e}")
+        sys.exit(1)
 
     raw = response.text.strip()
     if raw.startswith("```"):
