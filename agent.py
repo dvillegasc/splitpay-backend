@@ -81,16 +81,12 @@ def validate_file_content(filepath: str, content: str) -> str | None:
 
 def call_gemini_with_retries(prompt: str, max_attempts: int = 3):
     """
-    ANTES: una sola llamada; cualquier error (429, red, respuesta vacía, lo
-    que sea) tumbaba el bucle con un `break` silencioso y el script terminaba
-    con exit code 0. Por eso GitHub Actions mostraba ✅ verde en corridas
-    donde el agente en realidad no había hecho absolutamente nada.
-
-    AHORA: reintentamos con backoff SOLO errores que probablemente sean
-    transitorios (5xx, problemas de red puntuales). Un 429 de cuota agotada
-    NO se reintenta en el mismo run — si la cuota es diaria, esperar unos
-    segundos no la libera — se relanza tal cual para que run_agent() decida
-    terminar con un exit code distinto de 0.
+    v2 — con evidencia real de los logs de producción: los 429 llegaban en
+    una ráfaga de ~30 segundos entre los 3 carriles del matrix corriendo en
+    paralelo (mismo GEMINI_API_KEY, mismo minuto). Eso es un límite de
+    solicitudes POR MINUTO, no una cuota diaria agotada — así que SÍ vale la
+    pena reintentar un 429 esperando lo suficiente para cruzar la ventana de
+    un minuto, en vez de rendirse de inmediato.
     """
     last_exc = None
     for attempt in range(1, max_attempts + 1):
@@ -100,13 +96,14 @@ def call_gemini_with_retries(prompt: str, max_attempts: int = 3):
                 contents=prompt,
             )
         except errors.ClientError as e:
-            if "429" in str(e):
-                raise
             last_exc = e
-            wait = 5 * attempt
-            print(f"⚠️ Error de API (intento {attempt}/{max_attempts}): {e}")
-            print(f"   Reintentando en {wait}s...")
-            time.sleep(wait)
+            is_quota = "429" in str(e)
+            wait = 65 if is_quota else 5 * attempt
+            motivo = "cuota por minuto agotada (429)" if is_quota else f"error de API: {e}"
+            print(f"⚠️ Intento {attempt}/{max_attempts} falló ({motivo}).")
+            if attempt < max_attempts:
+                print(f"   Reintentando en {wait}s...")
+                time.sleep(wait)
     raise last_exc
 
 
