@@ -1,11 +1,37 @@
 import urllib.parse
-from pydantic import BaseModel
 from decimal import Decimal
+from typing import Any, Optional
+from pydantic import BaseModel
+
 
 class PaymentLinks(BaseModel):
     nequi_url: str
     daviplata_url: str
     bre_b_qr_data: str
+
+
+def generate_nequi_deep_link(phone: Optional[str], amount: Any) -> Optional[str]:
+    """
+    Genera un enlace profundo (deep link) hacia Nequi aplicando urllib.parse.quote()
+    al teléfono y al monto para evitar URLs malformadas.
+    """
+    if not phone:
+        return None
+
+    clean_phone = "".join(filter(str.isdigit, str(phone)))
+    if not clean_phone:
+        return None
+
+    try:
+        amount_dec = Decimal(str(amount)).quantize(Decimal("0.01"))
+    except Exception:
+        amount_dec = Decimal("0.00")
+
+    quoted_phone = urllib.parse.quote(clean_phone)
+    quoted_amount = urllib.parse.quote(str(amount_dec))
+
+    return f"nequi://pay?phone={quoted_phone}&amount={quoted_amount}"
+
 
 class PaymentRouter:
     """
@@ -14,31 +40,27 @@ class PaymentRouter:
     """
     NEQUI_BASE_URL = "nequi://pay"
     DAVIPLATA_BASE_URL = "daviplata://transfer"
-    
+
     @classmethod
     def generate_links(cls, phone_number: str, amount_str: str, concept: str = "SplitPay") -> PaymentLinks:
         # Sanitización estricta del input
-        clean_phone = ''.join(filter(str.isdigit, phone_number))
-        
-        try:
-            amount_dec = Decimal(amount_str).quantize(Decimal('0.01'))
-        except Exception:
-            amount_dec = Decimal('0.00')
+        clean_phone = "".join(filter(str.isdigit, phone_number))
 
-        # Codificación de parámetros de URL para evitar inyecciones
-        nequi_params = urllib.parse.urlencode({
-            'phone': clean_phone,
-            'amount': str(amount_dec),
-            'concept': concept
-        })
-        
-        daviplata_params = urllib.parse.urlencode({
-            'to': clean_phone,
-            'amount': str(amount_dec)
-        })
+        try:
+            amount_dec = Decimal(amount_str).quantize(Decimal("0.01"))
+        except Exception:
+            amount_dec = Decimal("0.00")
+
+        # Aplicar urllib.parse.quote() al teléfono y monto antes de interpolar
+        quoted_phone = urllib.parse.quote(clean_phone)
+        quoted_amount = urllib.parse.quote(str(amount_dec))
+        quoted_concept = urllib.parse.quote(concept)
+
+        nequi_url = f"{cls.NEQUI_BASE_URL}?phone={quoted_phone}&amount={quoted_amount}&concept={quoted_concept}"
+        daviplata_url = f"{cls.DAVIPLATA_BASE_URL}?to={quoted_phone}&amount={quoted_amount}"
 
         return PaymentLinks(
-            nequi_url=f"{cls.NEQUI_BASE_URL}?{nequi_params}",
-            daviplata_url=f"{cls.DAVIPLATA_BASE_URL}?{daviplata_params}",
-            bre_b_qr_data=f"breb:transfer:{clean_phone}:{amount_dec}"
+            nequi_url=nequi_url,
+            daviplata_url=daviplata_url,
+            bre_b_qr_data=f"breb:transfer:{quoted_phone}:{quoted_amount}"
         )
