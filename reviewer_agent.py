@@ -108,9 +108,9 @@ def call_gemini_with_retries(prompt: str, max_attempts: int = 3):
                 if model != REVIEWER_MODEL:
                     print(f"ℹ️ Se resolvió con el modelo de respaldo {model} (el principal no respondió).")
                 return response
-            except errors.ClientError as e:
+            except errors.APIError as e:
                 last_exc = e
-                is_quota = "429" in str(e)
+                is_quota = getattr(e, "code", None) == 429
                 wait = 65 if is_quota else 5 * attempt
                 motivo = "cuota por minuto agotada (429)" if is_quota else f"error de API: {e}"
                 print(f"⚠️ [{model}] Intento {attempt}/{max_attempts} falló ({motivo}).")
@@ -146,7 +146,7 @@ def main() -> None:
         response = call_gemini_with_retries(
             f"{REVIEW_CHECKLIST}\n\n--- DIFF DEL PULL REQUEST ---\n{diff}"
         )
-    except errors.ClientError as e:
+    except errors.APIError as e:
         gh("pr", "comment", PR_NUMBER, "--body",
            f"⚠️ El agente verificador no pudo completar la revisión tras varios intentos "
            f"(cuota de Gemini agotada o error de API: {e}). Se reintentará automáticamente "
