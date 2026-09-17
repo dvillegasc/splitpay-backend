@@ -79,31 +79,36 @@ def validate_file_content(filepath: str, content: str) -> str | None:
     return None
 
 
+PRIMARY_MODEL = os.environ.get("PRIMARY_MODEL", "gemini-3.6-flash")
+FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "gemini-2.5-flash")
+
+
 def call_gemini_with_retries(prompt: str, max_attempts: int = 3):
     """
-    v2 — con evidencia real de los logs de producción: los 429 llegaban en
-    una ráfaga de ~30 segundos entre los 3 carriles del matrix corriendo en
-    paralelo (mismo GEMINI_API_KEY, mismo minuto). Eso es un límite de
-    solicitudes POR MINUTO, no una cuota diaria agotada — así que SÍ vale la
-    pena reintentar un 429 esperando lo suficiente para cruzar la ventana de
-    un minuto, en vez de rendirse de inmediato.
+    v3 — igual que v2 (un 429 casi siempre es cuota POR MINUTO, vale la pena
+    esperar la ventana de un minuto), más un segundo nivel: si el modelo
+    principal agota sus reintentos, se prueba con un segundo modelo de Gemini
+    (cuota independiente dentro de la misma cuenta, cero cuentas ni
+    dependencias nuevas) antes de rendirse del todo.
     """
     last_exc = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            return client.models.generate_content(
-                model='gemini-3.6-flash',
-                contents=prompt,
-            )
-        except errors.ClientError as e:
-            last_exc = e
-            is_quota = "429" in str(e)
-            wait = 65 if is_quota else 5 * attempt
-            motivo = "cuota por minuto agotada (429)" if is_quota else f"error de API: {e}"
-            print(f"⚠️ Intento {attempt}/{max_attempts} falló ({motivo}).")
-            if attempt < max_attempts:
-                print(f"   Reintentando en {wait}s...")
-                time.sleep(wait)
+    for model in (PRIMARY_MODEL, FALLBACK_MODEL):
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = client.models.generate_content(model=model, contents=prompt)
+                if model != PRIMARY_MODEL:
+                    print(f"ℹ️ Se resolvió con el modelo de respaldo {model} (el principal no respondió).")
+                return response
+            except errors.APIError as e:
+                last_exc = e
+                is_quota = getattr(e, "code", None) == 429
+                wait = 65 if is_quota else 5 * attempt
+                motivo = "cuota por minuto agotada (429)" if is_quota else f"error de API: {e}"
+                print(f"⚠️ [{model}] Intento {attempt}/{max_attempts} falló ({motivo}).")
+                if attempt < max_attempts:
+                    print(f"   Reintentando en {wait}s...")
+                    time.sleep(wait)
+        print(f"🔁 Se agotaron los reintentos con {model}, probando el siguiente modelo...")
     raise last_exc
 
 
@@ -145,6 +150,7 @@ def run_agent():
         REGLA CRÍTICA: Tu respuesta debe ser ÚNICAMENTE un objeto JSON válido.
         - Las claves (keys) deben ser la ruta relativa del archivo (ej. 'main.py' o 'models/user.py').
         - Los valores (values) deben ser el código fuente COMPLETO de ese archivo, sin caracteres sueltos antes o después.
+        - Si la tarea requiere ELIMINAR un archivo en vez de modificarlo, usa el valor null (no un string) para esa ruta.
         - NO incluyas formato Markdown, no saludes, no expliques nada. Solo el JSON.
         """
 
@@ -206,8 +212,8 @@ def run_agent():
             print("Deteniendo el bucle. La tarea no se marcó con [x] para que se reintente en el próximo ciclo.")
             sys.exit(1)  # ANTES: break (exit 0)
 
-        except errors.ClientError as e:
-            if "429" in str(e):
+        except errors.APIError as e:
+            if getattr(e, "code", None) == 429:
                 print(
                     "🛑 Cuota gratuita agotada (Error 429). El agente se detiene ahora; "
                     "probablemente se recupere en la próxima corrida programada (cada 6h)."
