@@ -17,6 +17,7 @@ from models.household import Household
 from models.member import HouseholdMember
 from models.split import ExpenseSplit
 from models.user import User
+from services.currency_converter import convert_amount
 from services.payment_router import generate_nequi_deep_link
 
 
@@ -26,12 +27,14 @@ def calculate_member_balances(db: Session, household_id: UUID) -> Dict[UUID, Dec
 
     Solo se consideran los gastos que han sido aprobados en su totalidad
     (estado_aprobacion == APROBADO). Para cada gasto aprobado:
-    - El pagador recibe un crédito por el monto total desembolsado (+monto_total).
-    - Cada participante en el split recibe un débito por la cuota asignada (-monto_asignado).
+    - El pagador recibe un crédito por el monto total desembolsado (+monto_total,
+      convertido a la moneda base del hogar si la moneda del gasto difiere).
+    - Cada participante en el split recibe un débito por la cuota asignada (-monto_asignado,
+      convertido a la moneda base del hogar si la moneda del gasto difiere).
 
     :param db: Sesión de base de datos SQLAlchemy.
     :param household_id: Identificador único del hogar.
-    :return: Diccionario que mapea el ID de cada usuario a su saldo neto (Decimal).
+    :return: Diccionario que mapea el ID de cada usuario a su saldo neto (Decimal) en la moneda base del hogar.
     :raises ValueError: Si el hogar especificado no existe.
     """
     household = db.query(Household).filter(Household.id == household_id).first()
@@ -56,11 +59,16 @@ def calculate_member_balances(db: Session, household_id: UUID) -> Dict[UUID, Dec
     )
 
     for expense in approved_expenses:
+        if expense.moneda != household.moneda_base:
+            monto_pagado = convert_amount(expense.monto_total, expense.moneda, household.moneda_base)
+        else:
+            monto_pagado = expense.monto_total
+
         pagador_id = expense.pagado_por_id
         if pagador_id in balances:
-            balances[pagador_id] += expense.monto_total
+            balances[pagador_id] += monto_pagado
         else:
-            balances[pagador_id] = expense.monto_total
+            balances[pagador_id] = monto_pagado
 
         splits = (
             db.query(ExpenseSplit)
@@ -68,10 +76,15 @@ def calculate_member_balances(db: Session, household_id: UUID) -> Dict[UUID, Dec
             .all()
         )
         for split in splits:
-            if split.user_id in balances:
-                balances[split.user_id] -= split.monto_asignado
+            if expense.moneda != household.moneda_base:
+                monto_split = convert_amount(split.monto_asignado, expense.moneda, household.moneda_base)
             else:
-                balances[split.user_id] = -split.monto_asignado
+                monto_split = split.monto_asignado
+
+            if split.user_id in balances:
+                balances[split.user_id] -= monto_split
+            else:
+                balances[split.user_id] = -monto_split
 
     # Asegurar redondeo estandarizado a dos decimales para cada saldo
     for user_id, amount in balances.items():

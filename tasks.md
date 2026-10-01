@@ -75,7 +75,7 @@
 - [ ] [CORE] Backend: En `services/payment_router.py`, aplicar `urllib.parse.quote()` al `telefono` y al `monto` antes de interpolarlos en el deep link, para evitar URLs malformadas.
 - [ ] [CORE] Backend: Agregar una nota explícita en el docstring de `services/debt_simplifier.py` y en la descripción de `DebtSimplificationResponse`/`DebtTransferResponse` (visible en `/docs` de FastAPI): "SplitPay no ejecuta ni custodia estas transferencias; son sugerencias de pago entre las billeteras propias de los usuarios."
 - [ ] [CORE] Backend: En `services/currency_converter.py`, documentar en el docstring del módulo que la caché en memoria es por proceso, y que un despliegue con múltiples workers de uvicorn/gunicorn multiplicará las llamadas a la API externa; dejar un TODO para migrar a Redis si se escala horizontalmente.
-- [ ] [TESTS] Backend: Agregar a `tests/test_debt_simplifier.py` un caso donde `Expense.moneda` difiera de `household.moneda_base`, verificando que `convert_amount()` se invoque y que el saldo final quede expresado en la moneda base del hogar.
+- [x] [TESTS] Backend: Agregar a `tests/test_debt_simplifier.py` un caso donde `Expense.moneda` difiera de `household.moneda_base`, verificando que `convert_amount()` se invoque y que el saldo final quede expresado en la moneda base del hogar.
 
 > Nota: la verificación manual del deep link de Nequi en un dispositivo real
 > (que estaba aquí como ítem y fue marcada [x] sin evidencia real) se retiró

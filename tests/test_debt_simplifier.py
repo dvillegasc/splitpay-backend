@@ -6,11 +6,13 @@ Cubre los siguientes escenarios:
 - Hogar con tesorero dinámico asignado (centralización de transferencias).
 - Hogar donde el tesorero dinámico tiene saldo neto propio (acreedor o deudor).
 - Filtrado exclusivo de gastos en estado APROBADO.
+- Conversión de divisas cuando Expense.moneda difiere de household.moneda_base.
 - Generación de enlaces Nequi deep link.
 - Validación de excepciones al consultar hogares inexistentes.
 """
 
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -295,6 +297,69 @@ def test_simplify_household_debts_only_approved_expenses_counted(db_session):
 
     result = simplify_household_debts(db_session, household.id)
     assert len(result["transferencias"]) == 0
+
+
+def test_simplify_household_debts_different_currency(db_session):
+    """
+    Verifica que cuando Expense.moneda difiera de household.moneda_base,
+    `convert_amount()` sea invocado para realizar la conversión y los saldos final
+    y transferencias queden expresados en la moneda base del hogar.
+    """
+    user_a = User(id=uuid4(), nombre_completo="User A", email="a@example.com", hashed_password="pwd", telefono="3001111111")
+    user_b = User(id=uuid4(), nombre_completo="User B", email="b@example.com", hashed_password="pwd", telefono="3002222222")
+    db_session.add_all([user_a, user_b])
+
+    # Hogar con moneda base COP
+    household = Household(id=uuid4(), nombre="Hogar Multidivisa", moneda_base="COP")
+    db_session.add(household)
+    db_session.flush()
+
+    m1 = HouseholdMember(household_id=household.id, user_id=user_a.id, es_tesorero_dinamico=False)
+    m2 = HouseholdMember(household_id=household.id, user_id=user_b.id, es_tesorero_dinamico=False)
+    db_session.add_all([m1, m2])
+
+    # Gasto registrado en USD por $100 (User A pagó)
+    expense = Expense(
+        id=uuid4(),
+        household_id=household.id,
+        pagado_por_id=user_a.id,
+        descripcion="Servicio Cloud en USD",
+        monto_total=Decimal("100.00"),
+        monto_total_moneda_base=Decimal("400000.00"),
+        moneda="USD",
+        estado_aprobacion=EstadoAprobacionEnum.APROBADO,
+    )
+    db_session.add(expense)
+    db_session.flush()
+
+    s1 = ExpenseSplit(expense_id=expense.id, user_id=user_a.id, monto_asignado=Decimal("50.00"), aprobado_por_usuario=True)
+    s2 = ExpenseSplit(expense_id=expense.id, user_id=user_b.id, monto_asignado=Decimal("50.00"), aprobado_por_usuario=True)
+    db_session.add_all([s1, s2])
+    db_session.commit()
+
+    def mock_convert(amount, from_curr, to_curr):
+        if from_curr == "USD" and to_curr == "COP":
+            return Decimal(str(amount)) * Decimal("4000.00")
+        return Decimal(str(amount))
+
+    with patch("services.debt_simplifier.convert_amount", side_effect=mock_convert) as mock_convert_func:
+        result = simplify_household_debts(db_session, household.id)
+
+        # Verificamos que convert_amount() haya sido invocado para convertir de USD a COP
+        assert mock_convert_func.called
+        mock_convert_func.assert_any_call(Decimal("100.00"), "USD", "COP")
+        mock_convert_func.assert_any_call(Decimal("50.00"), "USD", "COP")
+
+        # User A pagó $100 USD = 400,000 COP, su split es $50 USD = 200,000 COP -> Saldo A = +200,000 COP
+        # User B split $50 USD = 200,000 COP -> Saldo B = -200,000 COP
+        assert result["saldos_netos"][user_a.id] == Decimal("200000.00")
+        assert result["saldos_netos"][user_b.id] == Decimal("-200000.00")
+
+        transfers = result["transferencias"]
+        assert len(transfers) == 1
+        assert transfers[0]["deudor_id"] == user_b.id
+        assert transfers[0]["acreedor_id"] == user_a.id
+        assert transfers[0]["monto"] == Decimal("200000.00")
 
 
 def test_simplify_household_debts_non_existent_household(db_session):
