@@ -401,4 +401,3 @@ def get_household_balances(
         )
 
     return debt_summary
-"

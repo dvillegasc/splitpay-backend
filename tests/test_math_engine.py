@@ -131,4 +131,3 @@ def test_calculate_proportional_split_invalid_inputs() -> None:
 
     with pytest.raises(ValueError, match="Debe proporcionar al menos un miembro"):
         calculate_proportional_split(Decimal("100.00"), {})
-"

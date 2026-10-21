@@ -36,6 +36,7 @@ class HouseholdMember(Base):
             "household_id",
             unique=True,
             postgresql_where=text("es_tesorero_dinamico = true"),
+            sqlite_where=text("es_tesorero_dinamico = 1"),  # las pruebas corren sobre SQLite
         ),
     )
 
